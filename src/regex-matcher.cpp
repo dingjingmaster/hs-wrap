@@ -127,6 +127,8 @@ bool RegexMatcherPrivate::matchRegexp(const QString& lineBuf)
 {
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
 
+    mMatchRes.clear();
+
     auto matchRegexp = [this] (const QString& str, const QString& reg) ->void {
         int pos = 0;
         const QRegExp regExp(reg, mCaseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive);
