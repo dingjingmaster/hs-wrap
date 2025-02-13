@@ -1,0 +1,5 @@
+file(GLOB HS_WRAP_SRC regex-matcher.cpp regex-matcher.h)
+add_library(hs-wrap SHARED ${HS_WRAP_SRC})
+target_include_directories(hs-wrap PUBLIC ${QT5_INCLUDE_DIRS} ${HS_INCLUDE_DIRS})
+target_link_libraries(hs-wrap PUBLIC ${QT5_LIBRARIES} ${HS_LIBRARIES})
+target_compile_options(hs-wrap PUBLIC -fPIC)

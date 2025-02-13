@@ -1,0 +1,3 @@
+[submodule "src/macros"]
+	path = src/macros
+	url = https://github.com/dingjingmaster/macros.git

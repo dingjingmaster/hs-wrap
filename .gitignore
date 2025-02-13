@@ -1,3 +1,5 @@
+.idea/
+cmake-build*/
 # C++ objects and libs
 *.slo
 *.lo
