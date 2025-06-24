@@ -30,6 +30,7 @@ find_package(Qt5 COMPONENTS Core REQUIRED)
 
 pkg_check_modules(HS REQUIRED libhs)
 pkg_check_modules(QT5 REQUIRED Qt5Core)
+pkg_check_modules(OPENCC REQUIRED opencc)
 
 cmake_host_system_information(RESULT OS QUERY OS_NAME)
 cmake_host_system_information(RESULT RELEASE QUERY OS_RELEASE)

@@ -6,17 +6,19 @@
 #define hs_wrap_SCANNER_H
 #include <QObject>
 
+class QFile;
 class RegexMatcherPrivate;
 class RegexMatcher final : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(RegexMatcher);
 public:
-    explicit RegexMatcher(const QString& reg, bool caseSensitive=true, QObject *parent = nullptr);
+    explicit RegexMatcher(const QString& reg, bool stSensitive=true, bool caseSensitive=true, quint64 blockSize=2^20, QObject *parent = nullptr);
     ~RegexMatcher() override;
 
+    bool match(QFile& file);
     bool match(const QString& str);
-    const QMap<quint32, quint32>& getMatchResult();
+    const QMap<quint64, quint64>& getMatchResult();
 
 
 Q_SIGNALS:

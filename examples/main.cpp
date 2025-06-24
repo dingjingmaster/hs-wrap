@@ -2,6 +2,7 @@
 // Created by dingjing on 2/12/25.
 //
 
+#include <QFile>
 #include <QDebug>
 #include <QString>
 
@@ -10,6 +11,7 @@
 
 int main (int argc, char* argv[])
 {
+#if 0
     QString str = "Hello Worldjkkkkkaaaazzzz";
 
     auto matchStr = [&] (const QString& str, const QString& reg) ->void {
@@ -35,6 +37,22 @@ int main (int argc, char* argv[])
     matchStr(str, "k+");
     matchStr(str, "k");
     matchStr(str, "H* W");
+    return 0;
+#endif
+
+    QFile file("/home/dingjing/aaa.txt");
+    if (file.open(QIODevice::ReadOnly)) {
+        RegexMatcher rm("安得合众");
+        rm.match(file);
+
+        qInfo() << "match result: ";
+        auto res = rm.getMatchResult();
+        for (auto k : res.keys()) {
+            qInfo() << "Start: " << k << " End: " << res[k];
+        }
+        qInfo() << "<==================";
+        file.close();
+    }
 
     return 0;
 }
