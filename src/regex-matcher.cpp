@@ -16,6 +16,7 @@
 static QString chineseSimpleToTradition(const QString& str);
 static QString chineseTraditionToSimple(const QString& str);
 
+
 static int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx);
 
 class RegexMatcherPrivate
@@ -35,6 +36,7 @@ public:
     qint64 doMatchRegexp(const QString& lineBuf, const QRegExp& regexp, const qint64 offset=0);
 
     void addMatchPos(quint64 start, quint64 end);
+    bool alreadyMatched() const;
 
 private:
     RegexMatcher*               q_ptr = nullptr;
@@ -46,6 +48,7 @@ private:
 
     qint64                      mBlockSize;
 
+    QList<QString>              mCtx;
     QMap<quint64, quint64>      mMatchRes;
 };
 
@@ -124,8 +127,14 @@ void RegexMatcherPrivate::addMatchPos(quint64 start, quint64 end)
     mMatchRes.insert(start, end);
 }
 
+bool RegexMatcherPrivate::alreadyMatched() const
+{
+    return mMatchRes.count() > 0;
+}
+
 bool RegexMatcherPrivate::matchHyperScan(const QString& lineBuf)
 {
+    mCtx.clear();
     mMatchRes.clear();
 
     if (HS_SUCCESS != hs_scan(mHsDB, lineBuf.toUtf8().constData(), lineBuf.toUtf8().count(), 0, mScratch, hyper_scan_match_cb, this)) {
@@ -139,6 +148,7 @@ bool RegexMatcherPrivate::matchHyperScan(const QString& lineBuf)
 bool RegexMatcherPrivate::matchHyperScan(QFile& file)
 {
 #define FREE_STREAM(stream) if (stream) { hs_close_stream(stream, mScratch, hyper_scan_match_cb, NULL); stream = nullptr; }
+    mCtx.clear();
     mMatchRes.clear();
     hs_stream* stream = nullptr;
 
@@ -165,6 +175,7 @@ bool RegexMatcherPrivate::matchRegexp(QFile& file)
 {
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
 
+    mCtx.clear();
     mMatchRes.clear();
 
     const qint64 step2 = mBlockSize / 6 * 4;
@@ -215,6 +226,7 @@ bool RegexMatcherPrivate::matchRegexp(const QString& lineBuf)
 {
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
 
+    mCtx.clear();
     mMatchRes.clear();
 
     if (1 == mRegxStrings.count()) {
@@ -260,6 +272,51 @@ RegexMatcher::~RegexMatcher()
     delete d_ptr;
 }
 
+bool RegexMatcher::match(QFile& file, QList<QString>& ctx, qint32 count)
+{
+    Q_D(RegexMatcher);
+
+    bool ret = false;
+
+    const quint64 fileSize = file.size();
+    if (fileSize <= d->mBlockSize) {
+        const QByteArray all = file.readAll();
+        ret = match(all);
+    }
+
+    if (!ret) {
+        if (d->compileHyperScan(HS_MODE_STREAM)) {
+            if (d->matchHyperScan(file)) {
+                ret = true;
+            }
+        }
+    }
+    if (!ret) {
+        ret = d->matchRegexp(file);
+    }
+
+    if (ret && d->alreadyMatched()) {
+        file.seek(0);
+        for (auto it = d->mMatchRes.constKeyValueBegin(); it != d->mMatchRes.constKeyValueEnd(); ++it) {
+            const qint64 k = static_cast<qint64>(it->first);
+            const qint64 v = static_cast<qint64>(it->second);
+
+            qint64 start = k - 40;
+            const qint64 readByte = v - k + 40;
+            if (start < 0) {
+                start = 0;
+            }
+            file.seek(start);
+            QString buf = file.read(readByte);
+            ctx.append(buf);
+
+            C_BREAK_IF_OK((count >= 0) && (ctx.size() >= count));
+        }
+    }
+
+    return ret;
+}
+
 bool RegexMatcher::match(const QString& str)
 {
     Q_D(RegexMatcher);
@@ -275,26 +332,7 @@ bool RegexMatcher::match(QFile& file)
 {
     Q_D(RegexMatcher);
 
-    const quint64 fileSize = file.size();
-    if (fileSize <= d->mBlockSize) {
-        const QByteArray all = file.readAll();
-        return match(all);
-    }
-
-    if (d->compileHyperScan(HS_MODE_STREAM)) {
-        if (d->matchHyperScan(file)) {
-            return true;
-        }
-    }
-
-    return d->matchRegexp(file);
-}
-
-const QMap<quint64, quint64>& RegexMatcher::getMatchResult()
-{
-    Q_D(RegexMatcher);
-
-    return d->mMatchRes;
+    return match(file, d->mCtx, -1);
 }
 
 static int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx)

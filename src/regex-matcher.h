@@ -18,8 +18,7 @@ public:
 
     bool match(QFile& file);
     bool match(const QString& str);
-    const QMap<quint64, quint64>& getMatchResult();
-
+    bool match(QFile& file, QList<QString>& ctx, qint32 count);
 
 Q_SIGNALS:
     void matchedString(const QString& str, QPrivateSignal);

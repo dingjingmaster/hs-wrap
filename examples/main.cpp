@@ -40,15 +40,15 @@ int main (int argc, char* argv[])
     return 0;
 #endif
 
+    QList<QString> ctx;
     QFile file("/home/dingjing/aaa.txt");
-    if (file.open(QIODevice::ReadOnly)) {
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         RegexMatcher rm("安得合众");
-        rm.match(file);
+        rm.match(file, ctx, 10);
 
         qInfo() << "match result: ";
-        auto res = rm.getMatchResult();
-        for (auto k : res.keys()) {
-            qInfo() << "Start: " << k << " End: " << res[k];
+        for (auto& f : ctx) {
+            qInfo() << f;
         }
         qInfo() << "<==================";
         file.close();
