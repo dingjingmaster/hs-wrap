@@ -317,6 +317,13 @@ bool RegexMatcher::match(QFile& file, QList<QString>& ctx, qint32 count)
     return ret;
 }
 
+qint64 RegexMatcher::getMatchedCount()
+{
+    Q_D(RegexMatcher);
+
+    return d->mMatchRes.size();
+}
+
 bool RegexMatcher::match(const QString& str)
 {
     Q_D(RegexMatcher);

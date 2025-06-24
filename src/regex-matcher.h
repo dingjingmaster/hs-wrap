@@ -17,6 +17,7 @@ public:
     ~RegexMatcher() override;
 
     bool match(QFile& file);
+    qint64 getMatchedCount();
     bool match(const QString& str);
     bool match(QFile& file, QList<QString>& ctx, qint32 count);
 
