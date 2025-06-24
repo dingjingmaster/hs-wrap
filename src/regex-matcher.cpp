@@ -167,8 +167,9 @@ bool RegexMatcherPrivate::matchRegexp(QFile& file)
 
     mMatchRes.clear();
 
-    const qint64 step = mBlockSize / 2;
     const qint64 step2 = mBlockSize / 6 * 4;
+
+    // TODO:// 检测到敏感信息就退出
 
     auto matchBuffer = [&] (const QRegExp& exp) {
         qint64 readStart = 0;
@@ -177,11 +178,11 @@ bool RegexMatcherPrivate::matchRegexp(QFile& file)
             const auto ret = file.read(mBlockSize);
             matchOffset = doMatchRegexp(ret, exp, readStart);
             if (matchOffset >= 0) {
-                if (matchOffset > step) {
+                if (matchOffset > step2) {
                     readStart += matchOffset;
                 }
                 else {
-                    readStart += step;
+                    readStart += step2;
                 }
             }
             else {
