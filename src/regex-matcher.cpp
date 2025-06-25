@@ -184,8 +184,6 @@ bool RegexMatcherPrivate::matchRegexp(QFile& file)
 
     const qint64 step2 = mBlockSize / 6 * 4;
 
-    // TODO:// 检测到敏感信息就退出
-
     auto matchBuffer = [&] (const QRegExp& exp) {
         qint64 readStart = 0;
         qint64 matchOffset = 0;
@@ -320,13 +318,12 @@ void RegexMatcher::ResultIterator::reset()
     mEnd = mRI.d_ptr->mMatchRes.constEnd();
 }
 
-RegexMatcher::RegexMatcher(const QString& reg, bool stSensitive, bool caseSensitive, quint64 blockSize, QObject* parent)
+RegexMatcher::RegexMatcher(const QString& reg, bool caseSensitive, quint64 blockSize, QObject* parent)
     : QObject(parent), d_ptr(new RegexMatcherPrivate(this, blockSize))
 {
     Q_D(RegexMatcher);
 
     d->mCaseSensitive = caseSensitive;
-    d->mTwMainlandSensitive = stSensitive;
     if (!reg.isEmpty()) {
         d->mRegxStrings += reg;
     }
