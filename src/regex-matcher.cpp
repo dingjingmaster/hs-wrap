@@ -15,6 +15,7 @@
 
 static QString chineseSimpleToTradition(const QString& str);
 static QString chineseTraditionToSimple(const QString& str);
+static QString validUtf8String(const char* data, int dataLen);
 
 
 static int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx);
@@ -24,7 +25,7 @@ class RegexMatcherPrivate
     Q_DECLARE_PUBLIC(RegexMatcher);
     friend int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx);
 public:
-    explicit RegexMatcherPrivate(RegexMatcher* q, const quint64 blockSize);
+    explicit RegexMatcherPrivate(RegexMatcher* q, qint64 blockSize);
     ~RegexMatcherPrivate();
 
     bool compileHyperScan(int mode=HS_MODE_BLOCK);
@@ -49,10 +50,13 @@ private:
     qint64                      mBlockSize;
 
     QList<QString>              mCtx;
-    QMap<quint64, quint64>      mMatchRes;
+    QMap<qint64, qint64>        mMatchRes;
+
+    // 上下文
+    QString                     mContext;           // 检查的字符串/或文件路径
 };
 
-RegexMatcherPrivate::RegexMatcherPrivate(RegexMatcher* q, const quint64 blockSize)
+RegexMatcherPrivate::RegexMatcherPrivate(RegexMatcher* q, qint64 blockSize)
     : q_ptr(q), mBlockSize(blockSize)
 {
 }
@@ -124,7 +128,7 @@ bool RegexMatcherPrivate::compileHyperScan(int mode)
 
 void RegexMatcherPrivate::addMatchPos(quint64 start, quint64 end)
 {
-    mMatchRes.insert(start, end);
+    mMatchRes.insert(static_cast<qint64>(start), static_cast<qint64>(end));
 }
 
 bool RegexMatcherPrivate::alreadyMatched() const
@@ -255,6 +259,67 @@ qint64 RegexMatcherPrivate::doMatchRegexp(const QString& lineBuf, const QRegExp&
     return pos;
 }
 
+RegexMatcher::ResultIterator::ResultIterator(const RegexMatcher& map)
+    : mRI(map)
+{
+    reset();
+}
+
+bool RegexMatcher::ResultIterator::hasNext() const
+{
+    return mCurrent != mEnd;
+}
+
+QPair<QString, QString> RegexMatcher::ResultIterator::next()
+{
+    QPair<QString, QString> pair("", "");
+
+    if (mCurrent != mEnd) {
+        const qint64 s = mCurrent.key();
+        const qint64 e = mCurrent.value();
+        if (!QFile::exists(mRI.d_ptr->mContext)) {
+            qint64 s1 = s - 24;
+            qint64 e1 = e + 24;
+
+            if (s1 < 0) { s1 = 0; }
+            if (e1 > mRI.d_ptr->mContext.size()) { e1 = mRI.d_ptr->mContext.size(); }
+
+            const QString key = mRI.d_ptr->mContext.mid(static_cast<int>(s), static_cast<int>(e - s));
+            const QString ctx = mRI.d_ptr->mContext.mid(static_cast<int>(s1), static_cast<int>(e1 - s1));
+            pair = QPair<QString, QString>(key, ctx);
+        }
+        else {
+            QFile file(mRI.d_ptr->mContext);
+
+            qint64 s1 = s - 24;
+            qint64 e1 = e + 24;
+
+            if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                const qint64 fileSize = file.size();
+                if (s1 < 0) { s1 = 0; }
+                if (e1 > fileSize) { e1 = fileSize; }
+
+                file.seek(s1);
+                const QString ctxT = file.read(e1 - s1);
+                file.seek(s);
+                const QString key = file.read(e - s);
+                file.close();
+                const QString ctx = validUtf8String(ctxT.toUtf8().constData(), ctxT.toUtf8().size());
+                pair = QPair<QString, QString>(key, ctx);
+            }
+        }
+        ++mCurrent;
+    }
+
+    return pair;
+}
+
+void RegexMatcher::ResultIterator::reset()
+{
+    mCurrent = mRI.d_ptr->mMatchRes.constBegin();
+    mEnd = mRI.d_ptr->mMatchRes.constEnd();
+}
+
 RegexMatcher::RegexMatcher(const QString& reg, bool stSensitive, bool caseSensitive, quint64 blockSize, QObject* parent)
     : QObject(parent), d_ptr(new RegexMatcherPrivate(this, blockSize))
 {
@@ -272,9 +337,11 @@ RegexMatcher::~RegexMatcher()
     delete d_ptr;
 }
 
-bool RegexMatcher::match(QFile& file, QList<QString>& ctx, qint32 count)
+bool RegexMatcher::match(QFile& file)
 {
     Q_D(RegexMatcher);
+
+    d->mContext = file.fileName();
 
     bool ret = false;
 
@@ -295,26 +362,19 @@ bool RegexMatcher::match(QFile& file, QList<QString>& ctx, qint32 count)
         ret = d->matchRegexp(file);
     }
 
-    if (ret && d->alreadyMatched()) {
-        file.seek(0);
-        for (auto it = d->mMatchRes.constKeyValueBegin(); it != d->mMatchRes.constKeyValueEnd(); ++it) {
-            const qint64 k = static_cast<qint64>(it->first);
-            const qint64 v = static_cast<qint64>(it->second);
-
-            qint64 start = k - 40;
-            const qint64 readByte = v - k + 40;
-            if (start < 0) {
-                start = 0;
-            }
-            file.seek(start);
-            QString buf = file.read(readByte);
-            ctx.append(buf);
-
-            C_BREAK_IF_OK((count >= 0) && (ctx.size() >= count));
-        }
-    }
-
     return ret;
+}
+
+QMap<qint64, qint64> RegexMatcher::getMatchResults()
+{
+    Q_D(RegexMatcher);
+
+    return d->mMatchRes;
+}
+
+RegexMatcher::ResultIterator RegexMatcher::getResultIterator() const
+{
+    return ResultIterator(*this);
 }
 
 qint64 RegexMatcher::getMatchedCount()
@@ -328,6 +388,8 @@ bool RegexMatcher::match(const QString& str)
 {
     Q_D(RegexMatcher);
 
+    d->mContext = str;
+
     if (d->compileHyperScan()) {
         return d->matchHyperScan(str);
     }
@@ -335,12 +397,6 @@ bool RegexMatcher::match(const QString& str)
     return d->matchRegexp(str);
 }
 
-bool RegexMatcher::match(QFile& file)
-{
-    Q_D(RegexMatcher);
-
-    return match(file, d->mCtx, -1);
-}
 
 static int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx)
 {
@@ -371,4 +427,323 @@ static QString chineseTraditionToSimple(const QString& str)
     const std::string res = conv.Convert(str.toStdString());
 
     return QString::fromStdString(res);
+}
+
+
+inline uint32_t utf8_to_codepoint(const uint8_t *data, size_t len)
+{
+    if (!data || len == 0) return 0;
+
+    uint32_t codepoint = 0;
+    switch (len) {
+        default:
+        case 1: {
+            codepoint = data[0];
+            break;
+        }
+        case 2: {
+            codepoint = ((data[0] & 0x1F) << 6) | (data[1] & 0x3F);
+            break;
+        }
+        case 3: {
+            codepoint = ((data[0] & 0x0F) << 12) | ((data[1] & 0x3F) << 6) | (data[2] & 0x3F);
+            break;
+        }
+        case 4: {
+            codepoint = ((data[0] & 0x07) << 18) | ((data[1] & 0x3F) << 12) | ((data[2] & 0x3F) << 6) | (data[3] & 0x3F);
+            break;
+        }
+    }
+
+    return codepoint;
+}
+
+inline bool is_visible_2byte_char(uint32_t codepoint)
+{
+    // 2字节范围: U+0080 - U+07FF
+    if (codepoint < 0x80 || codepoint > 0x7FF) {
+        return false;
+    }
+
+    // 拉丁扩展补充 (Latin-1 Supplement): U+00A0 - U+00FF
+    if (codepoint >= 0x00A0 && codepoint <= 0x00FF) {
+        return true;
+    }
+
+    // 拉丁扩展-A (Latin Extended-A): U+0100 - U+017F
+    if (codepoint >= 0x0100 && codepoint <= 0x017F) {
+        return true;
+    }
+
+    // 拉丁扩展-B (Latin Extended-B): U+0180 - U+024F
+    if (codepoint >= 0x0180 && codepoint <= 0x024F) {
+        return true;
+    }
+
+    // IPA 扩展 (IPA Extensions): U+0250 - U+02AF
+    if (codepoint >= 0x0250 && codepoint <= 0x02AF) {
+        return true;
+    }
+
+    // 希腊文和科普特文 (Greek and Coptic): U+0370 - U+03FF
+    if (codepoint >= 0x0370 && codepoint <= 0x03FF) {
+        return true;
+    }
+
+    // 西里尔文 (Cyrillic): U+0400 - U+04FF
+    if (codepoint >= 0x0400 && codepoint <= 0x04FF) {
+        return true;
+    }
+
+    // 西里尔文补充 (Cyrillic Supplement): U+0500 - U+052F
+    if (codepoint >= 0x0500 && codepoint <= 0x052F) {
+        return true;
+    }
+
+    // 亚美尼亚文 (Armenian): U+0530 - U+058F
+    if (codepoint >= 0x0530 && codepoint <= 0x058F) {
+        return true;
+    }
+
+    // 希伯来文 (Hebrew): U+0590 - U+05FF
+    if (codepoint >= 0x0590 && codepoint <= 0x05FF) {
+        return true;
+    }
+
+    // 阿拉伯文 (Arabic): U+0600 - U+06FF
+    if (codepoint >= 0x0600 && codepoint <= 0x06FF) {
+        return true;
+    }
+
+    return false;
+}
+
+inline bool is_visible_3byte_char(uint32_t codepoint)
+{
+    // 3字节范围: U+0800 - U+FFFF
+    if (codepoint < 0x0800 || codepoint > 0xFFFF) {
+        return false;
+    }
+
+    // 排除代理对范围
+    if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+        return false;
+    }
+
+    // 一般标点符号 (General Punctuation): U+2000 - U+206F
+    if (codepoint >= 0x2000 && codepoint <= 0x206F) {
+        return true;
+    }
+
+    // 上标和下标 (Superscripts and Subscripts): U+2070 - U+209F
+    if (codepoint >= 0x2070 && codepoint <= 0x209F) {
+        return true;
+    }
+
+    // 货币符号 (Currency Symbols): U+20A0 - U+20CF
+    if (codepoint >= 0x20A0 && codepoint <= 0x20CF) {
+        return true;
+    }
+
+    // 数学符号 (Mathematical Operators): U+2200 - U+22FF
+    if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
+        return true;
+    }
+
+    // 杂项技术符号 (Miscellaneous Technical): U+2300 - U+23FF
+    if (codepoint >= 0x2300 && codepoint <= 0x23FF) {
+        return true;
+    }
+
+    // 控制图片 (Control Pictures): U+2400 - U+243F
+    if (codepoint >= 0x2400 && codepoint <= 0x243F) {
+        return true;
+    }
+
+    // 几何形状 (Geometric Shapes): U+25A0 - U+25FF
+    if (codepoint >= 0x25A0 && codepoint <= 0x25FF) {
+        return true;
+    }
+
+    // 杂项符号 (Miscellaneous Symbols): U+2600 - U+26FF
+    if (codepoint >= 0x2600 && codepoint <= 0x26FF) {
+        return true;
+    }
+
+    // 中日韩符号和标点 (CJK Symbols and Punctuation): U+3000 - U+303F
+    if (codepoint >= 0x3000 && codepoint <= 0x303F) {
+        return true;
+    }
+
+    // 日文平假名 (Hiragana): U+3040 - U+309F
+    if (codepoint >= 0x3040 && codepoint <= 0x309F) {
+        return true;
+    }
+
+    // 日文片假名 (Katakana): U+30A0 - U+30FF
+    if (codepoint >= 0x30A0 && codepoint <= 0x30FF) {
+        return true;
+    }
+
+    // 韩文注音字母 (Bopomofo): U+3100 - U+312F
+    if (codepoint >= 0x3100 && codepoint <= 0x312F) {
+        return true;
+    }
+
+    // 韩文兼容字母 (Hangul Compatibility Jamo): U+3130 - U+318F
+    if (codepoint >= 0x3130 && codepoint <= 0x318F) {
+        return true;
+    }
+
+    // 中日韩统一表意文字 (CJK Unified Ideographs): U+4E00 - U+9FFF
+    if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
+        return true;
+    }
+
+    // 韩文音节 (Hangul Syllables): U+AC00 - U+D7AF
+    if (codepoint >= 0xAC00 && codepoint <= 0xD7AF) {
+        return true;
+    }
+
+    // 中日韩兼容表意文字 (CJK Compatibility Ideographs): U+F900 - U+FAFF
+    if (codepoint >= 0xF900 && codepoint <= 0xFAFF) {
+        return true;
+    }
+
+    // 字母表示形式 (Alphabetic Presentation Forms): U+FB00 - U+FB4F
+    if (codepoint >= 0xFB00 && codepoint <= 0xFB4F) {
+        return true;
+    }
+
+    // 阿拉伯文表示形式-A (Arabic Presentation Forms-A): U+FB50 - U+FDFF
+    if (codepoint >= 0xFB50 && codepoint <= 0xFDFF) {
+        return true;
+    }
+
+    // 组合半标记 (Combining Half Marks): U+FE20 - U+FE2F
+    if (codepoint >= 0xFE20 && codepoint <= 0xFE2F) {
+        return true;
+    }
+
+    // 中日韩兼容形式 (CJK Compatibility Forms): U+FE30 - U+FE4F
+    if (codepoint >= 0xFE30 && codepoint <= 0xFE4F) {
+        return true;
+    }
+
+    // 小形式变体 (Small Form Variants): U+FE50 - U+FE6F
+    if (codepoint >= 0xFE50 && codepoint <= 0xFE6F) {
+        return true;
+    }
+
+    // 阿拉伯文表示形式-B (Arabic Presentation Forms-B): U+FE70 - U+FEFF
+    if (codepoint >= 0xFE70 && codepoint <= 0xFEFF) {
+        return true;
+    }
+
+    // 半角和全角形式 (Halfwidth and Fullwidth Forms): U+FF00 - U+FFEF
+    if (codepoint >= 0xFF00 && codepoint <= 0xFFEF) {
+        return true;
+    }
+
+    return false;
+}
+
+inline bool is_visible_4byte_char(uint32_t codepoint) {
+    // 4字节范围: U+10000 - U+10FFFF
+    if (codepoint < 0x10000 || codepoint > 0x10FFFF) {
+        return false;
+    }
+
+    // 表情符号 (Emoticons): U+1F600 - U+1F64F
+    if (codepoint >= 0x1F600 && codepoint <= 0x1F64F) {
+        return true;
+    }
+
+    // 杂项符号和象形文字 (Miscellaneous Symbols and Pictographs): U+1F300 - U+1F5FF
+    if (codepoint >= 0x1F300 && codepoint <= 0x1F5FF) {
+        return true;
+    }
+
+    // 传输和地图符号 (Transport and Map Symbols): U+1F680 - U+1F6FF
+    if (codepoint >= 0x1F680 && codepoint <= 0x1F6FF) {
+        return true;
+    }
+
+    // 补充符号和象形文字 (Supplemental Symbols and Pictographs): U+1F900 - U+1F9FF
+    if (codepoint >= 0x1F900 && codepoint <= 0x1F9FF) {
+        return true;
+    }
+
+    // 中日韩统一表意文字扩展B (CJK Unified Ideographs Extension B): U+20000 - U+2A6DF
+    if (codepoint >= 0x20000 && codepoint <= 0x2A6DF) {
+        return true;
+    }
+
+    // 中日韩统一表意文字扩展C (CJK Unified Ideographs Extension C): U+2A700 - U+2B73F
+    if (codepoint >= 0x2A700 && codepoint <= 0x2B73F) {
+        return true;
+    }
+
+    // 中日韩统一表意文字扩展D (CJK Unified Ideographs Extension D): U+2B740 - U+2B81F
+    if (codepoint >= 0x2B740 && codepoint <= 0x2B81F) {
+        return true;
+    }
+
+    // 中日韩兼容表意文字补充 (CJK Compatibility Ideographs Supplement): U+2F800 - U+2FA1F
+    if (codepoint >= 0x2F800 && codepoint <= 0x2FA1F) {
+        return true;
+    }
+
+    return false;
+}
+
+
+static QString validUtf8String(const char* data, int dataLen)
+{
+    C_RETURN_VAL_IF_FAIL(data && dataLen > 0, "");
+
+    QByteArray buffer;
+    for (int i = 0; i < dataLen; ++i) {
+        const uchar byte = ((uint8_t*)data)[i];
+        if ((0x80 & byte) == 0x00) {
+            if (0x20 >= byte || 0x7E <= byte) {
+                buffer.append(data[i]);
+            }
+        }
+        else if ((0xE0 & byte) == 0xC0) {
+            if ((i + 2) < dataLen){
+                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 2);
+                if (is_visible_2byte_char(code)) {
+                    buffer.append(data[i]);
+                    buffer.append(data[i + 1]);
+                    ++i;
+                }
+            }
+        }
+        else if ((0xF0 & byte) == 0xE0) {
+            if ((i + 3) < dataLen) {
+                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 3);
+                if (is_visible_3byte_char(code)) {
+                    buffer.append(data[i]);
+                    buffer.append(data[i + 1]);
+                    buffer.append(data[i + 2]);
+                    i += 2;
+                }
+            }
+        }
+        else if ((0xF8 & byte) == 0xF0) {
+            if ((i + 4) < dataLen) {
+                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 4);
+                if (is_visible_4byte_char(code)) {
+                    buffer.append(data[i]);
+                    buffer.append(data[i + 1]);
+                    buffer.append(data[i + 2]);
+                    buffer.append(data[i + 3]);
+                    i += 3;
+                }
+            }
+        }
+    }
+
+    return buffer;
 }
