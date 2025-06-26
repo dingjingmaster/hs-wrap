@@ -40,6 +40,7 @@ int main (int argc, char* argv[])
     return 0;
 #endif
 
+#if 0
     QFile file("/home/dingjing/aaa.txt");
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         RegexMatcher rm("安得合众");
@@ -50,6 +51,27 @@ int main (int argc, char* argv[])
         while (res.hasNext()) {
             auto r = res.next();
             qInfo() << "k: " << r.first << " v: " << r.second;
+        }
+    }
+#endif
+
+
+    {
+        // const QString file1 = "/home/dingjing/pf/运营商.md";
+        const QString file1 = "/home/dingjing/pf/安得合众.md";
+        QFile file(file1);
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            // RegexMatcher rm("(安\\.\\{0,15\\}得\\.\\{0,15\\}合\\.\\{0,15\\}众|安\\.\\{0,15\\}得\\.\\{0,15\\}合\\.\\{0,15\\}衆|运\\.\\{0,15\\}营\\.\\{0,15\\}商|運\\.\\{0,15\\}營\\.\\{0,15\\}商)");
+            // RegexMatcher rm("(安.{0.15}得.{0,15}合.{0,15}众|运.{0,15}营.{0,15}商)");
+            RegexMatcher rm("(安.{0,15}得.{0,15}合.{0,15}众|安.{0,15}得.{0,15}合.{0,15}衆|运.{0,15}营.{0,15}商|運.{0,15}營.{0,15}商)");
+            rm.match(file);
+            file.close();
+            qInfo() << "=======>";
+            RegexMatcher::ResultIterator res = rm.getResultIterator();
+            while (res.hasNext()) {
+                auto r = res.next();
+                qInfo() << "k: " << r.first << " v: " << r.second;
+            }
         }
     }
 

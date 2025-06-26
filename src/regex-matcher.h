@@ -34,7 +34,7 @@ public:
         ResultConstIterator             mCurrent;
     };
 
-    explicit RegexMatcher(const QString& reg, bool caseSensitive=true, quint64 blockSize=2^20, QObject *parent = nullptr);
+    explicit RegexMatcher(const QString& reg, bool caseSensitive=true, qint64 blockSize=(2<<20), QObject *parent = nullptr);
     ~RegexMatcher() override;
 
     qint64 getMatchedCount();

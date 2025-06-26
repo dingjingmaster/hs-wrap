@@ -77,7 +77,9 @@ bool RegexMatcherPrivate::compileHyperScan(int mode)
         flags |= HS_FLAG_CASELESS;
     }
 
-    mode |= HS_MODE_SOM_HORIZON_MEDIUM;
+    if (HS_MODE_STREAM == mode) {
+        mode |= HS_MODE_SOM_HORIZON_MEDIUM;
+    }
 
     hs_compile_error_t* hsCompileErr = nullptr;
 
@@ -179,7 +181,6 @@ bool RegexMatcherPrivate::matchRegexp(QFile& file)
 {
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
 
-    mCtx.clear();
     mMatchRes.clear();
 
     const qint64 step2 = mBlockSize / 6 * 4;
@@ -318,7 +319,7 @@ void RegexMatcher::ResultIterator::reset()
     mEnd = mRI.d_ptr->mMatchRes.constEnd();
 }
 
-RegexMatcher::RegexMatcher(const QString& reg, bool caseSensitive, quint64 blockSize, QObject* parent)
+RegexMatcher::RegexMatcher(const QString& reg, bool caseSensitive, qint64 blockSize, QObject* parent)
     : QObject(parent), d_ptr(new RegexMatcherPrivate(this, blockSize))
 {
     Q_D(RegexMatcher);
