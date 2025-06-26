@@ -16,6 +16,7 @@
 static QString chineseSimpleToTradition(const QString& str);
 static QString chineseTraditionToSimple(const QString& str);
 static QString validUtf8String(const char* data, int dataLen);
+static QString validUtf8String(const QString& data);
 
 
 static int hyper_scan_match_cb (unsigned int id, unsigned long long from, unsigned long long to, unsigned int flags, void* ctx);
@@ -695,6 +696,11 @@ inline bool is_visible_4byte_char(uint32_t codepoint) {
     return false;
 }
 
+
+static QString validUtf8String(const QString& data)
+{
+    return validUtf8String(data.toUtf8().data(), data.toUtf8().size());
+}
 
 static QString validUtf8String(const char* data, int dataLen)
 {
