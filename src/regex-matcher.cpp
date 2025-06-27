@@ -284,8 +284,8 @@ QPair<QString, QString> RegexMatcher::ResultIterator::next()
             if (s1 < 0) { s1 = 0; }
             if (e1 > mRI.d_ptr->mContext.size()) { e1 = mRI.d_ptr->mContext.size(); }
 
-            const QString key = mRI.d_ptr->mContext.mid(static_cast<int>(s), static_cast<int>(e - s));
-            const QString ctx = mRI.d_ptr->mContext.mid(static_cast<int>(s1), static_cast<int>(e1 - s1));
+            const QString key = mRI.d_ptr->mContext.toUtf8().mid(static_cast<int>(s), static_cast<int>(e - s));
+            const QString ctx = mRI.d_ptr->mContext.toUtf8().mid(static_cast<int>(s1), static_cast<int>(e1 - s1));
             pair = QPair<QString, QString>(key, ctx);
         }
         else {
