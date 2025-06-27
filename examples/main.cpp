@@ -57,15 +57,15 @@ int main (int argc, char* argv[])
 
 
     {
-        // const QString file1 = "/home/dingjing/pf/运营商.md";
+        const QString file1 = "/home/dingjing/pf/运营商.md";
         // const QString file1 = "/home/dingjing/pf/安得合众.md";
-        const QString file1 = "/home/dingjing/pf/scan-task-19545139800s1fk7pb0h";
+        // const QString file1 = "/home/dingjing/pf/scan-task-19545139800s1fk7pb0h";
         QFile file(file1);
         if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
             // RegexMatcher rm("(安\\.\\{0,15\\}得\\.\\{0,15\\}合\\.\\{0,15\\}众|安\\.\\{0,15\\}得\\.\\{0,15\\}合\\.\\{0,15\\}衆|运\\.\\{0,15\\}营\\.\\{0,15\\}商|運\\.\\{0,15\\}營\\.\\{0,15\\}商)");
             // RegexMatcher rm("(安.{0.15}得.{0,15}合.{0,15}众|运.{0,15}营.{0,15}商)");
-            // RegexMatcher rm("(安.{0,15}得.{0,15}合.{0,15}众|安.{0,15}得.{0,15}合.{0,15}衆|运.{0,15}营.{0,15}商|運.{0,15}營.{0,15}商)");
-            RegexMatcher rm("(test)");
+            RegexMatcher rm("(安.{0,15}得.{0,15}合.{0,15}众|安.{0,15}得.{0,15}合.{0,15}衆|运.{0,15}营.{0,15}商|運.{0,15}營.{0,15}商)");
+            // RegexMatcher rm("(test)");
             rm.match(file);
             file.close();
             qInfo() << "=======>";

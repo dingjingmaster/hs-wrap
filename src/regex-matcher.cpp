@@ -50,7 +50,6 @@ private:
 
     qint64                      mBlockSize;
 
-    QList<QString>              mCtx;
     QMap<qint64, qint64>        mMatchRes;
 
     // 上下文
@@ -73,13 +72,13 @@ bool RegexMatcherPrivate::compileHyperScan(int mode)
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
     C_RETURN_VAL_IF_OK(mHsDB && mScratch, true);
 
-    int flags = HS_FLAG_SOM_LEFTMOST | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8;
+    int flags = HS_FLAG_SOM_LEFTMOST | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8 | HS_FLAG_UCP | HS_FLAG_MULTILINE;
     if (!mCaseSensitive) {
         flags |= HS_FLAG_CASELESS;
     }
 
     if (HS_MODE_STREAM == mode) {
-        mode |= HS_MODE_SOM_HORIZON_MEDIUM;
+        mode |= HS_MODE_SOM_HORIZON_LARGE;
     }
 
     hs_compile_error_t* hsCompileErr = nullptr;
@@ -141,7 +140,6 @@ bool RegexMatcherPrivate::alreadyMatched() const
 
 bool RegexMatcherPrivate::matchHyperScan(const QString& lineBuf)
 {
-    mCtx.clear();
     mMatchRes.clear();
 
     if (HS_SUCCESS != hs_scan(mHsDB, lineBuf.toUtf8().constData(), lineBuf.toUtf8().count(), 0, mScratch, hyper_scan_match_cb, this)) {
@@ -155,7 +153,6 @@ bool RegexMatcherPrivate::matchHyperScan(const QString& lineBuf)
 bool RegexMatcherPrivate::matchHyperScan(QFile& file)
 {
 #define FREE_STREAM(stream) if (stream) { hs_close_stream(stream, mScratch, hyper_scan_match_cb, NULL); stream = nullptr; }
-    mCtx.clear();
     mMatchRes.clear();
     hs_stream* stream = nullptr;
 
@@ -230,7 +227,6 @@ bool RegexMatcherPrivate::matchRegexp(const QString& lineBuf)
 {
     C_RETURN_VAL_IF_OK(mRegxStrings.isEmpty(), false);
 
-    mCtx.clear();
     mMatchRes.clear();
 
     if (1 == mRegxStrings.count()) {
@@ -252,8 +248,13 @@ qint64 RegexMatcherPrivate::doMatchRegexp(const QString& lineBuf, const QRegExp&
     qint64 pos = 0;
 
     while (-1 != (pos = regexp.indexIn(lineBuf, pos))) {
-        addMatchPos(pos + offset, pos + offset + regexp.matchedLength());
-        pos += regexp.matchedLength();
+        const qint64 pc = regexp.matchedLength();
+        const QString key = lineBuf.mid(pos, pc);
+        const qint64 left = lineBuf.left(pos).toUtf8().size();
+        // qInfo() << "==> " << key << " p: " << pos << " off: " << offset;
+        const qint64 keyLen = key.toUtf8().size();
+        addMatchPos(offset + left, offset + left + keyLen);
+        pos += pc;
     }
 
     return pos;
@@ -281,11 +282,14 @@ QPair<QString, QString> RegexMatcher::ResultIterator::next()
             qint64 s1 = s - 24;
             qint64 e1 = e + 24;
 
-            if (s1 < 0) { s1 = 0; }
-            if (e1 > mRI.d_ptr->mContext.size()) { e1 = mRI.d_ptr->mContext.size(); }
+            const QByteArray bt = mRI.d_ptr->mContext.toUtf8();
 
-            const QString key = mRI.d_ptr->mContext.toUtf8().mid(static_cast<int>(s), static_cast<int>(e - s));
-            const QString ctx = mRI.d_ptr->mContext.toUtf8().mid(static_cast<int>(s1), static_cast<int>(e1 - s1));
+            if (s1 < 0) { s1 = 0; }
+            if (e1 > bt.size()) { e1 = bt.size(); }
+
+            const QString key = bt.mid(static_cast<int>(s), static_cast<int>(e - s));
+            const QByteArray ctxT = bt.mid(static_cast<int>(s1), static_cast<int>(e1 - s1));
+            const QString ctx = validUtf8String(ctxT);
             pair = QPair<QString, QString>(key, ctx);
         }
         else {
@@ -699,7 +703,8 @@ inline bool is_visible_4byte_char(uint32_t codepoint) {
 
 static QString validUtf8String(const QString& data)
 {
-    return validUtf8String(data.toUtf8().data(), data.toUtf8().size());
+    const QByteArray bt = data.toUtf8();
+    return validUtf8String(bt.data(), bt.size());
 }
 
 static QString validUtf8String(const char* data, int dataLen)
@@ -710,13 +715,11 @@ static QString validUtf8String(const char* data, int dataLen)
     for (int i = 0; i < dataLen; ++i) {
         const uchar byte = ((uint8_t*)data)[i];
         if ((0x80 & byte) == 0x00) {
-            if (0x20 >= byte || 0x7E <= byte) {
-                buffer.append(data[i]);
-            }
+            buffer.append(data[i]);
         }
         else if ((0xE0 & byte) == 0xC0) {
             if ((i + 2) < dataLen){
-                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 2);
+                const uint32_t code = utf8_to_codepoint((uint8_t*)(data + i), 2);
                 if (is_visible_2byte_char(code)) {
                     buffer.append(data[i]);
                     buffer.append(data[i + 1]);
@@ -726,7 +729,7 @@ static QString validUtf8String(const char* data, int dataLen)
         }
         else if ((0xF0 & byte) == 0xE0) {
             if ((i + 3) < dataLen) {
-                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 3);
+                const uint32_t code = utf8_to_codepoint((uint8_t*)(data + i), 3);
                 if (is_visible_3byte_char(code)) {
                     buffer.append(data[i]);
                     buffer.append(data[i + 1]);
@@ -737,7 +740,7 @@ static QString validUtf8String(const char* data, int dataLen)
         }
         else if ((0xF8 & byte) == 0xF0) {
             if ((i + 4) < dataLen) {
-                const uint32_t code = utf8_to_codepoint((uint8_t*)data + i, 4);
+                const uint32_t code = utf8_to_codepoint((uint8_t*)(data + i), 4);
                 if (is_visible_4byte_char(code)) {
                     buffer.append(data[i]);
                     buffer.append(data[i + 1]);
